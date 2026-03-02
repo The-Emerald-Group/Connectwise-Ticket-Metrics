@@ -480,13 +480,3 @@ def config_check():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=False)
-```
-
----
-
-### `requirements.txt`
-```
-flask==3.0.3
-requests==2.32.3
-pytz==2024.1
-gunicorn==22.0.0
