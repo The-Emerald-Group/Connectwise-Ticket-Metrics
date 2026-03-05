@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ConnectWise Ticket Stats</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --crit: #ff3b30;
+    --warn: #ffcc00;
+    --good: #4cd964;
+    --stale: #444444;
+    --bg: #0a0a0a;
+    --card-bg: #161616;
+    /* legacy aliases kept for JS-rendered elements */
+    --green: var(--good);
+    --red: var(--crit);
+    --blue: #0a84ff;
+    --amber: var(--warn);
+    --purple: #bf5af2;
+    --header-bg: #111111;
+    --border: #222222;
+    --text: #ffffff;
+    --text-dim: #888888;
+    --text-muted: #444444;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; padding: 20px; margin: 0; }
+
+  /* Header & Clock */
+  .header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #222; padding-bottom: 10px; }
+  .clock-box { text-align: right; }
+  .harvest-time { font-size: 1.2rem; font-weight: bold; color: var(--good); }
+  .harvest-label { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+
+  .logo { font-size: 1rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: white; }
+  .logo span { color: var(--good); }
+  .header-right { display: flex; align-items: flex-end; gap: 24px; }
+  .last-harvest { text-align: right; }
+  .last-harvest-time { font-size: 1.2rem; font-weight: bold; color: var(--good); }
+  .last-harvest-label { font-size: 0.7rem; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+
+  .config-warning { background: rgba(255,59,48,0.08); border-left: 4px solid var(--crit); padding: 16px 24px; margin: 20px 0; border-radius: 0 8px 8px 0; display: none; }
+  .config-warning.visible { display: block; }
+  .config-warning h3 { color: var(--crit); font-size: .9rem; margin-bottom: 8px; }
+  .config-warning p { font-size: .8rem; color: var(--text-dim); line-height: 1.8; }
+  .config-warning code { background: rgba(255,255,255,.07); padding: 1px 6px; border-radius: 3px; color: var(--warn); }
+
+  /* Summary KPI bar */
+  .kpi-bar { display: flex; gap: 16px; margin-bottom: 32px; flex-wrap: wrap; }
+  .kpi-card { flex: 1; min-width: 160px; background: var(--card-bg); border-radius: 12px; padding: 18px 20px; border-top: 3px solid; }
+  .kpi-card.created { border-color: var(--blue); }
+  .kpi-card.closed  { border-color: var(--good); }
+  .kpi-card.delta   { border-color: var(--warn); }
+  .kpi-card.users   { border-color: var(--purple); }
+  .kpi-label { font-size: .7rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); margin-bottom: 8px; }
+  .kpi-value { font-size: 2.2rem; font-weight: 800; line-height: 1; }
+  .kpi-value.created { color: var(--blue); }
+  .kpi-value.closed  { color: var(--good); }
+  .kpi-value.delta.positive { color: var(--crit); }
+  .kpi-value.delta.negative { color: var(--good); }
+  .kpi-value.delta.neutral  { color: var(--text-dim); }
+  .kpi-value.users { color: var(--purple); }
+  .kpi-sub { font-size: .72rem; color: var(--text-muted); margin-top: 4px; }
+
+  .section-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .section-title { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); }
+  .section-gap { margin-bottom: 40px; }
+
+  /* User cards grid */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px; align-items: start; }
+  .card { padding: 20px; border-radius: 12px; background: var(--card-bg); border-left: 10px solid; transition: 0.3s; }
+  .Red { border-color: var(--crit); }
+  .Green { border-color: var(--good); opacity: 0.6; }
+
+  .user-card { background: var(--card-bg); border-radius: 12px; padding: 20px; }
+  .cust-name { font-size: 1.5rem; font-weight: bold; margin-bottom: 5px; }
+  .user-name { font-size: 1.1rem; font-weight: 700; margin-bottom: 12px; }
+  .status-meta { font-size: 0.85rem; color: #888; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 1px; }
+  .stat-row { display: flex; gap: 12px; margin-bottom: 14px; }
+  .stat-box { flex: 1; border-radius: 8px; padding: 12px 14px; text-align: center; }
+  .stat-box.created { background: rgba(10,132,255,0.1); border: 1px solid rgba(10,132,255,0.2); }
+  .stat-box.closed  { background: rgba(76,217,100,0.1); border: 1px solid rgba(76,217,100,0.2); }
+  .stat-box.net     { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+  .stat-box .val { font-size: 1.8rem; font-weight: 800; line-height: 1; margin-bottom: 2px; }
+  .stat-box.created .val { color: var(--blue); }
+  .stat-box.closed  .val { color: var(--good); }
+  .stat-box.net .val.positive { color: var(--crit); }
+  .stat-box.net .val.negative { color: var(--good); }
+  .stat-box.net .val.neutral  { color: var(--text-dim); }
+  .stat-box .lbl { font-size: .65rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); }
+
+  /* Issue items */
+  .issue-item { margin-bottom: 8px; padding: 10px 12px; border-radius: 4px; border-left: 4px solid; }
+  .sev-critical { border-left-color: var(--crit); background: rgba(255, 59, 48, 0.08); }
+  .sev-warning  { border-left-color: var(--warn); background: rgba(255, 204, 0, 0.05); }
+  .sev-stale    { border-left-color: var(--stale); background: rgba(255, 255, 255, 0.02); }
+  .srv-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .srv-name { font-size: 0.95rem; font-weight: 600; }
+  .srv-time { font-size: 0.8rem; opacity: 0.7; }
+  .instruction { display: block; font-size: 0.8rem; font-weight: bold; }
+  .sev-stale .instruction { color: #666; font-style: italic; }
+
+  /* Board breakdown inside card */
+  .board-breakdown { border-top: 1px solid var(--border); padding-top: 12px; }
+  .board-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; font-size: .78rem; color: var(--text-dim); }
+  .board-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
+  .board-pills { display: flex; gap: 6px; }
+  .board-pill { font-size: .65rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+  .board-pill.c { background: rgba(10,132,255,0.15); color: var(--blue); }
+  .board-pill.x { background: rgba(76,217,100,0.15); color: var(--good); }
+
+  /* Trend chart */
+  .chart-container { background: var(--card-bg); border-radius: 12px; padding: 20px; }
+  .chart-wrap { position: relative; height: 260px; }
+
+  .loading { display: flex; align-items: center; justify-content: center; padding: 60px; color: var(--text-dim); gap: 12px; font-size: .8rem; }
+  .spinner { width: 18px; height: 18px; border: 2px solid #333; border-top-color: var(--good); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-msg { padding: 30px; color: var(--crit); font-size: .8rem; }
+</style>
+</head>
+<body>
+
+<div class="header-container">
+  <div class="logo">ConnectWise <span>Ticket Stats</span></div>
+  <div class="header-right">
+    <div class="last-harvest">
+      <div class="last-harvest-time" id="last-harvest-time">—</div>
+      <div class="last-harvest-label">Last harvest</div>
+    </div>
+  </div>
+</div>
+
+<div class="config-warning" id="config-warning">
+  <h3>⚠ ConnectWise API Not Configured</h3>
+  <p>Set <code>CW_SITE</code>, <code>CW_COMPANY</code>, <code>CW_PUBLIC_KEY</code>, <code>CW_PRIVATE_KEY</code>, <code>CW_CLIENT_ID</code> in your docker-compose.yml.</p>
+</div>
+
+<div id="main-content"><div class="loading"><div class="spinner"></div>Loading stats…</div></div>
+
+<script>
+const REFRESH_INTERVAL = parseInt('{{ refresh_interval }}') || 300;
+const DAYS_BACK = parseInt('{{ days_back }}') || 7;
+let trendChart = null;
+
+// Auto-refresh
+setInterval(() => loadStats(), REFRESH_INTERVAL * 1000);
+
+function netClass(n) {
+  if (n > 0) return 'positive';
+  if (n < 0) return 'negative';
+  return 'neutral';
+}
+function netLabel(n) {
+  if (n > 0) return `+${n}`;
+  return `${n}`;
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch('/api/ticket-stats');
+    const data = await res.json();
+    if (data.error) {
+      document.getElementById('main-content').innerHTML = `<div class="error-msg">⚠ ${data.error}</div>`;
+      return;
+    }
+
+    const now = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    document.getElementById('last-harvest-time').textContent = now;
+
+    const { totals, users, daily } = data;
+    const netVal = totals.created - totals.closed;
+    const netCls = netClass(netVal);
+
+    // KPI bar
+    const kpiHTML = `
+      <div class="kpi-bar">
+        <div class="kpi-card created">
+          <div class="kpi-label">Tickets Created</div>
+          <div class="kpi-value created">${totals.created}</div>
+          <div class="kpi-sub">Last ${DAYS_BACK} days</div>
+        </div>
+        <div class="kpi-card closed">
+          <div class="kpi-label">Tickets Closed</div>
+          <div class="kpi-value closed">${totals.closed}</div>
+          <div class="kpi-sub">Last ${DAYS_BACK} days</div>
+        </div>
+        <div class="kpi-card delta">
+          <div class="kpi-label">Net Change</div>
+          <div class="kpi-value delta ${netCls}">${netLabel(netVal)}</div>
+          <div class="kpi-sub">${netVal > 0 ? 'Queue growing' : netVal < 0 ? 'Queue shrinking' : 'Balanced'}</div>
+        </div>
+        <div class="kpi-card users">
+          <div class="kpi-label">Active Users</div>
+          <div class="kpi-value users">${users.length}</div>
+          <div class="kpi-sub">With activity</div>
+        </div>
+      </div>`;
+
+    // Trend chart
+    const trendHTML = `
+      <div class="section-gap">
+        <div class="section-header"><span class="section-title">Daily Trend — Last ${DAYS_BACK} Days</span></div>
+        <div class="chart-container"><div class="chart-wrap"><canvas id="trendChart"></canvas></div></div>
+      </div>`;
+
+    // User cards
+    const userCards = users.map(u => {
+      const net = u.created - u.closed;
+      const netC = netClass(net);
+      const boardsHTML = u.boards.map(b => `
+        <div class="board-row">
+          <span class="board-name">${b.name}</span>
+          <div class="board-pills">
+            <span class="board-pill c">${b.created} created</span>
+            <span class="board-pill x">${b.closed} closed</span>
+          </div>
+        </div>`).join('');
+
+      return `<div class="user-card">
+        <div class="user-name">${u.name}</div>
+        <div class="stat-row">
+          <div class="stat-box created"><div class="val">${u.created}</div><div class="lbl">Created</div></div>
+          <div class="stat-box closed"><div class="val">${u.closed}</div><div class="lbl">Closed</div></div>
+          <div class="stat-box net"><div class="val ${netC}">${netLabel(net)}</div><div class="lbl">Net</div></div>
+        </div>
+        ${u.boards.length ? `<div class="board-breakdown">${boardsHTML}</div>` : ''}
+      </div>`;
+    }).join('');
+
+    document.getElementById('main-content').innerHTML = kpiHTML + trendHTML + `
+      <div class="section-gap">
+        <div class="section-header"><span class="section-title">Per User Breakdown</span></div>
+        <div class="grid">${userCards || '<p style="color:var(--text-dim);font-size:.8rem">No activity found in this period.</p>'}</div>
+      </div>`;
+
+    // Render chart
+    if (trendChart) { trendChart.destroy(); trendChart = null; }
+    const ctx = document.getElementById('trendChart').getContext('2d');
+    trendChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: daily.map(d => d.date),
+        datasets: [
+          { label: 'Created', data: daily.map(d => d.created), backgroundColor: 'rgba(10,132,255,0.6)', borderColor: 'rgba(10,132,255,0.9)', borderWidth: 1, borderRadius: 4 },
+          { label: 'Closed',  data: daily.map(d => d.closed),  backgroundColor: 'rgba(76,217,100,0.6)', borderColor: 'rgba(76,217,100,0.9)', borderWidth: 1, borderRadius: 4 }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: '#888' }, grid: { color: '#1e1e1e' } },
+          y: { ticks: { color: '#888' }, grid: { color: '#1e1e1e' }, beginAtZero: true }
+        }
+      }
+    });
+
+  } catch(e) {
+    document.getElementById('main-content').innerHTML = `<div class="error-msg">⚠ ${e.message}</div>`;
+  }
+}
+
+async function checkConfig() {
+  try {
+    const data = await fetch('/api/config-check').then(r => r.json());
+    if (!data.configured) document.getElementById('config-warning').classList.add('visible');
+  } catch(e) {}
+}
+
+checkConfig();
+loadStats();
+</script>
+</body>
+</html>
