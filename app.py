@@ -8,7 +8,6 @@ from collections import defaultdict
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Changed template_folder to "." so it looks in the same directory for index.html
 app = Flask(__name__, template_folder=".")
 
 CW_SITE        = os.environ.get("CW_SITE", "api-eu.myconnectwise.net")
@@ -73,13 +72,16 @@ def index():
 def ticket_stats():
     try:
         now = datetime.now(timezone.utc)
-        since = now - timedelta(days=DAYS_BACK)
+        
+        # Align the window exactly to midnight to prevent cutting off "today's" tickets
+        start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        since = start_of_today - timedelta(days=DAYS_BACK - 1)
         since_str = since.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         # --- Fetch created tickets in window ---
         created_params = {
             "conditions": f"dateEntered >= [{since_str}] and parentTicketId = null",
-            "fields": "id,summary,owner,board,dateEntered",
+            "fields": "id,summary,owner,board,dateEntered,_info",
             "orderBy": "dateEntered asc"
         }
         created_tickets = cw_get("/service/tickets", created_params)
@@ -87,32 +89,35 @@ def ticket_stats():
         # --- Fetch closed/resolved tickets in window ---
         closed_params = {
             "conditions": f"closedFlag = true and lastUpdated >= [{since_str}] and parentTicketId = null",
-            "fields": "id,summary,owner,board,lastUpdated,closedDate",
+            "fields": "id,summary,owner,board,lastUpdated,closedDate,_info",
             "orderBy": "lastUpdated asc"
         }
         closed_tickets = cw_get("/service/tickets", closed_params)
 
-        # --- Build daily buckets (Changed to use Day Names like "Monday") ---
+        # --- Build daily buckets ---
         daily_buckets = {}
         for i in range(DAYS_BACK):
             day_dt = since + timedelta(days=i)
-            day_key_str = day_dt.strftime("%Y-%m-%d") # Hidden key for sorting
-            day_name = day_dt.strftime("%A")          # Visible name (e.g., Monday)
+            day_key_str = day_dt.strftime("%Y-%m-%d")
+            day_name = day_dt.strftime("%A") 
             daily_buckets[day_key_str] = {"date": day_name, "created": 0, "closed": 0}
 
         def get_day_key(iso):
             try:
+                if not iso: return None
                 return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%Y-%m-%d")
             except:
                 return None
 
         for t in created_tickets:
-            k = get_day_key(t.get("dateEntered", ""))
+            # Fallback to _info.dateEntered just in case CW API nests it
+            de = t.get("dateEntered") or t.get("_info", {}).get("dateEntered", "")
+            k = get_day_key(de)
             if k and k in daily_buckets:
                 daily_buckets[k]["created"] += 1
 
         for t in closed_tickets:
-            ts = t.get("closedDate") or t.get("lastUpdated", "")
+            ts = t.get("closedDate") or t.get("lastUpdated") or t.get("_info", {}).get("lastUpdated", "")
             k = get_day_key(ts)
             if k and k in daily_buckets:
                 daily_buckets[k]["closed"] += 1
@@ -143,6 +148,10 @@ def ticket_stats():
 
         users_result = []
         for name in sorted(all_users):
+            # EXCLUDE UNASSIGNED FROM BREAKDOWN
+            if name.lower() == "unassigned":
+                continue
+
             created_boards = user_created[name]
             closed_boards  = user_closed[name]
 
