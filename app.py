@@ -8,7 +8,8 @@ from collections import defaultdict
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-app = Flask(__name__, template_folder="templates")
+# Changed template_folder to "." so it looks in the same directory for index.html
+app = Flask(__name__, template_folder=".")
 
 CW_SITE        = os.environ.get("CW_SITE", "api-eu.myconnectwise.net")
 CW_COMPANY     = os.environ.get("CW_COMPANY", "")
@@ -91,26 +92,28 @@ def ticket_stats():
         }
         closed_tickets = cw_get("/service/tickets", closed_params)
 
-        # --- Build daily buckets ---
+        # --- Build daily buckets (Changed to use Day Names like "Monday") ---
         daily_buckets = {}
         for i in range(DAYS_BACK):
-            day = (since + timedelta(days=i)).strftime("%d %b")
-            daily_buckets[day] = {"date": day, "created": 0, "closed": 0}
+            day_dt = since + timedelta(days=i)
+            day_key_str = day_dt.strftime("%Y-%m-%d") # Hidden key for sorting
+            day_name = day_dt.strftime("%A")          # Visible name (e.g., Monday)
+            daily_buckets[day_key_str] = {"date": day_name, "created": 0, "closed": 0}
 
-        def day_key(iso):
+        def get_day_key(iso):
             try:
-                return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%d %b")
+                return datetime.fromisoformat(iso.replace("Z", "+00:00")).strftime("%Y-%m-%d")
             except:
                 return None
 
         for t in created_tickets:
-            k = day_key(t.get("dateEntered", ""))
+            k = get_day_key(t.get("dateEntered", ""))
             if k and k in daily_buckets:
                 daily_buckets[k]["created"] += 1
 
         for t in closed_tickets:
             ts = t.get("closedDate") or t.get("lastUpdated", "")
-            k = day_key(ts)
+            k = get_day_key(ts)
             if k and k in daily_buckets:
                 daily_buckets[k]["closed"] += 1
 
